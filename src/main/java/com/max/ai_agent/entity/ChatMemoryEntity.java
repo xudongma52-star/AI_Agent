@@ -2,6 +2,7 @@ package com.max.ai_agent.entity;
 
 import com.baomidou.mybatisplus.annotation.*;
 import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
@@ -10,6 +11,7 @@ import java.time.LocalDateTime;
 @Data                    // Lombok：自动生成getter/setter/toString/equals/hashCode
 @NoArgsConstructor       // Lombok：生成无参构造
 @AllArgsConstructor
+@Builder
 @TableName("chat_memory") // MP：告诉MP这个类对应数据库哪张表
 public class ChatMemoryEntity {
 

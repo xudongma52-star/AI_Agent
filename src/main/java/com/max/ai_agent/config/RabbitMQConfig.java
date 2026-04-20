@@ -57,7 +57,7 @@ public class RabbitMQConfig {
                 .with(CHAT_ROUTING_KEY);
     }
 
-    // ===== 死信交换机和队列 =====
+    // 死信交换机和队列
 
     @Bean
     public DirectExchange chatDeadExchange() {
@@ -79,7 +79,7 @@ public class RabbitMQConfig {
                 .with(DEAD_ROUTING_KEY);
     }
 
-    // ===== JSON消息转换器 =====
+    // JSON消息转换器
 
     @Bean
     public Jackson2JsonMessageConverter messageConverter() {

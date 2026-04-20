@@ -1,20 +1,23 @@
-// memory/RedisMySqlChatMemory.java
 package com.max.ai_agent.memory;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.max.ai_agent.dto.ChatMessageDTO;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.max.ai_agent.config.RabbitMQConfig;
+import com.max.ai_agent.dto.ChatMemoryMessage;
 import com.max.ai_agent.entity.ChatMemoryEntity;
 import com.max.ai_agent.mapper.ChatMemoryMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.messages.*;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.RedisTemplate;
-import org.springframework.scheduling.annotation.Async;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
 
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -27,6 +30,9 @@ public class RedisMySqlChatMemory implements ChatMemory {
 
     private final RedisTemplate<String, Object> redisTemplate;
     private final ChatMemoryMapper chatMemoryMapper;
+    private final RabbitTemplate rabbitTemplate;
+    private final DefaultRedisScript<Long> addMessageScript;
+    private final ObjectMapper objectMapper;
 
     @Value("${chat.memory.redis-ttl:3600}")
     private long redisTtl;
@@ -35,90 +41,100 @@ public class RedisMySqlChatMemory implements ChatMemory {
     private int maxSize;
 
     public RedisMySqlChatMemory(RedisTemplate<String, Object> redisTemplate,
-                                 ChatMemoryMapper chatMemoryMapper) {
+                                ChatMemoryMapper chatMemoryMapper,
+                                RabbitTemplate rabbitTemplate,
+                                DefaultRedisScript<Long> addMessageScript, // 加上泛型<Long>
+                                ObjectMapper objectMapper
+    ) {
         this.redisTemplate = redisTemplate;
         this.chatMemoryMapper = chatMemoryMapper;
+        this.rabbitTemplate = rabbitTemplate;
+        this.addMessageScript = addMessageScript;
+        this.objectMapper = objectMapper;
     }
 
-    /**
-     * 写入消息
-     */
     @Override
     public void add(String conversationId, List<Message> messages) {
         String redisKey = REDIS_KEY_PREFIX + conversationId;
         String counterKey = COUNTER_KEY_PREFIX + conversationId;
 
-        for (Message message : messages) {
-            // 原子自增获取顺序号
-            Long order = redisTemplate.opsForValue().increment(counterKey);
-            if (order == null || order == 1) {
-                // Redis没有，从MySQL补偿最大值
-                Integer maxOrder = chatMemoryMapper.selectMaxOrder(conversationId);
-                order = (maxOrder == null ? 0 : maxOrder) + 1L;
-                redisTemplate.opsForValue().set(counterKey, order);
-            }
 
-            ChatMessageDTO dto = new ChatMessageDTO(
-                    getMessageType(message),
-                    message.getText(),
-                    order.intValue(),
-                    System.currentTimeMillis()
+        Integer mysqlMaxOrder = chatMemoryMapper.selectMaxOrder(conversationId);
+        int maxOrder = mysqlMaxOrder == null ? 0 : mysqlMaxOrder;
+
+        for (Message message : messages) {
+            String messageType = getMessageType(message);
+            String content = message.getText();
+            long timestamp = System.currentTimeMillis();
+            String messageId = UUID.randomUUID().toString();
+
+            ChatMemoryMessage redisMsg = new ChatMemoryMessage(
+                    conversationId, messageType, content, 0, timestamp, messageId
             );
 
-            // 同步写Redis
-            redisTemplate.opsForList().rightPush(redisKey, dto);
-            redisTemplate.expire(redisKey, redisTtl, TimeUnit.SECONDS);
-            redisTemplate.expire(counterKey, redisTtl, TimeUnit.SECONDS);
+            String messageJson;
+            try {
+                messageJson = objectMapper.writeValueAsString(redisMsg);
+            } catch (JsonProcessingException e) {
+                log.error("消息序列化失败，会话[{}]", conversationId, e);
+                throw new RuntimeException("消息序列化失败", e);
+            }
 
-            // 异步写MySQL
-            asyncSaveToMySQL(conversationId, dto);
+            Long order = redisTemplate.execute(
+                    addMessageScript,
+                    Arrays.asList(redisKey, counterKey),
+                    messageJson,
+                    String.valueOf(redisTtl),
+                    String.valueOf(maxOrder)
+            );
+
+            if (order == null) {
+                log.error("Lua脚本执行失败，会话[{}]", conversationId);
+                throw new RuntimeException("Redis写入失败");
+            }
+            log.debug("Lua脚本执行成功，顺序号:{}, 会话[{}]", order, conversationId);
+
+
+            redisMsg.setMessageOrder(order.intValue());
+
+
+            rabbitTemplate.convertAndSend(
+                    RabbitMQConfig.CHAT_EXCHANGE,
+                    RabbitMQConfig.CHAT_ROUTING_KEY,
+                    redisMsg
+            );
+            log.debug("消息发送到MQ成功, messageId:{}, 会话[{}]", messageId, conversationId);
         }
 
         log.debug("写入{}条消息，会话[{}]", messages.size(), conversationId);
     }
 
-    /**
-     * 读取消息
-     */
     @Override
     public List<Message> get(String conversationId, int lastN) {
         String redisKey = REDIS_KEY_PREFIX + conversationId;
         Long redisSize = redisTemplate.opsForList().size(redisKey);
 
-        // Redis有数据直接返回
         if (redisSize != null && redisSize > 0) {
             log.debug("Redis命中，会话[{}] 共{}条", conversationId, redisSize);
             return getFromRedis(redisKey, lastN);
         }
 
-        // Redis没有，去MySQL查并回填
         log.debug("Redis未命中，从MySQL加载，会话[{}]", conversationId);
         return loadFromMySQL(conversationId, lastN, redisKey);
     }
 
-    /**
-     * 清除会话
-     */
     @Override
     public void clear(String conversationId) {
-        // 清Redis
         redisTemplate.delete(REDIS_KEY_PREFIX + conversationId);
         redisTemplate.delete(COUNTER_KEY_PREFIX + conversationId);
 
-        // 清MySQL（MP的lambdaDelete）
         chatMemoryMapper.delete(
                 new LambdaQueryWrapper<ChatMemoryEntity>()
                         .eq(ChatMemoryEntity::getConversationId, conversationId)
         );
-
         log.info("已清除会话[{}]所有记忆", conversationId);
     }
 
-    // ========== 私有方法 ==========
-
-    /**
-     * 从Redis获取最后N条
-     */
     private List<Message> getFromRedis(String redisKey, int lastN) {
         try {
             Long size = redisTemplate.opsForList().size(redisKey);
@@ -129,9 +145,23 @@ public class RedisMySqlChatMemory implements ChatMemory {
             if (rawList == null) return Collections.emptyList();
 
             return rawList.stream()
-                    .filter(obj -> obj instanceof ChatMessageDTO)
-                    .map(obj -> convertToMessage((ChatMessageDTO) obj))
-                    .filter(msg -> msg != null)
+                    .map(obj -> {
+                        try {
+                            if (obj instanceof String json) {
+                                return objectMapper.readValue(json, ChatMemoryMessage.class);
+                            }
+                            if (obj instanceof ChatMemoryMessage dto) {
+                                return dto;
+                            }
+                            return objectMapper.convertValue(obj, ChatMemoryMessage.class);
+                        } catch (Exception e) {
+                            log.warn("消息反序列化失败：{}", obj, e);
+                            return null;
+                        }
+                    })
+                    .filter(Objects::nonNull)
+                    .map(this::convertToMessage)
+                    .filter(Objects::nonNull)
                     .collect(Collectors.toList());
         } catch (Exception e) {
             log.error("Redis获取消息失败", e);
@@ -139,44 +169,56 @@ public class RedisMySqlChatMemory implements ChatMemory {
         }
     }
 
-    /**
-     * 从MySQL加载并回填Redis
-     */
-    private List<Message> loadFromMySQL(String conversationId,
-                                                  int lastN, String redisKey) {
+    private List<Message> loadFromMySQL(String conversationId, int lastN, String redisKey) {
         try {
-            // MP的LambdaQuery查询
-            List<ChatMemoryEntity> entities = chatMemoryMapper.selectList(
-                    new LambdaQueryWrapper<ChatMemoryEntity>()
-                            .eq(ChatMemoryEntity::getConversationId, conversationId)
-                            .orderByAsc(ChatMemoryEntity::getMessageOrder)
-                            .last("LIMIT " + maxSize)
+            Page<ChatMemoryEntity> page = new Page<>(1, maxSize);
+
+
+            chatMemoryMapper.selectPage(page, new LambdaQueryWrapper<ChatMemoryEntity>()
+                    .eq(ChatMemoryEntity::getConversationId, conversationId)
+                    .orderByDesc(ChatMemoryEntity::getMessageOrder)
             );
 
+            List<ChatMemoryEntity> entities = page.getRecords();
             if (entities.isEmpty()) return Collections.emptyList();
 
-            // 回填Redis
+
+            Collections.reverse(entities);
+
+            String counterKey = COUNTER_KEY_PREFIX + conversationId;
             for (ChatMemoryEntity entity : entities) {
-                ChatMessageDTO dto = new ChatMessageDTO(
+                ChatMemoryMessage dto = new ChatMemoryMessage(
+                        conversationId,
                         entity.getMessageType(),
                         entity.getContent(),
                         entity.getMessageOrder(),
-                        System.currentTimeMillis()
+                        System.currentTimeMillis(),
+                        UUID.randomUUID().toString()
                 );
-                redisTemplate.opsForList().rightPush(redisKey, dto);
+                try {
+                    String json = objectMapper.writeValueAsString(dto);
+
+                    redisTemplate.opsForList().rightPush(redisKey, json);
+                } catch (JsonProcessingException e) {
+                    log.warn("回填Redis序列化失败", e);
+                }
             }
             redisTemplate.expire(redisKey, redisTtl, TimeUnit.SECONDS);
 
+            Integer maxOrder = chatMemoryMapper.selectMaxOrder(conversationId);
+            if (maxOrder != null && maxOrder > 0) {
+                redisTemplate.opsForValue().set(counterKey, maxOrder);
+                redisTemplate.expire(counterKey, redisTtl, TimeUnit.SECONDS);
+            }
             log.info("MySQL回填{}条消息到Redis，会话[{}]", entities.size(), conversationId);
 
-            // 返回最后N条
             List<ChatMemoryEntity> result = entities.size() > lastN
                     ? entities.subList(entities.size() - lastN, entities.size())
                     : entities;
 
             return result.stream()
                     .map(this::convertEntityToMessage)
-                    .filter(msg -> msg != null)
+                    .filter(Objects::nonNull)
                     .collect(Collectors.toList());
         } catch (Exception e) {
             log.error("MySQL加载消息失败，会话[{}]", conversationId, e);
@@ -184,30 +226,6 @@ public class RedisMySqlChatMemory implements ChatMemory {
         }
     }
 
-    /**
-     * 异步写入MySQL
-     */
-    @Async
-    public void asyncSaveToMySQL(String conversationId, ChatMessageDTO dto) {
-        try {
-            ChatMemoryEntity entity = new ChatMemoryEntity(
-                    null,
-                    conversationId,
-                    dto.getMessageType(),
-                    dto.getContent(),
-                    dto.getMessageOrder(),
-                    null
-            );
-            chatMemoryMapper.insert(entity);
-            log.debug("MySQL异步写入成功，会话[{}]", conversationId);
-        } catch (Exception e) {
-            log.error("MySQL异步写入失败，会话[{}]", conversationId, e);
-        }
-    }
-
-    /**
-     * Message → 类型字符串
-     */
     private String getMessageType(Message message) {
         if (message instanceof UserMessage) return "USER";
         if (message instanceof AssistantMessage) return "ASSISTANT";
@@ -215,10 +233,7 @@ public class RedisMySqlChatMemory implements ChatMemory {
         return "UNKNOWN";
     }
 
-    /**
-     * DTO → Message
-     */
-    private Message convertToMessage(ChatMessageDTO dto) {
+    private Message convertToMessage(ChatMemoryMessage dto) {
         return switch (dto.getMessageType()) {
             case "USER" -> new UserMessage(dto.getContent());
             case "ASSISTANT" -> new AssistantMessage(dto.getContent());
@@ -227,9 +242,6 @@ public class RedisMySqlChatMemory implements ChatMemory {
         };
     }
 
-    /**
-     * Entity → Message
-     */
     private Message convertEntityToMessage(ChatMemoryEntity entity) {
         return switch (entity.getMessageType()) {
             case "USER" -> new UserMessage(entity.getContent());

@@ -25,6 +25,12 @@
     </properties>
 
     <dependencies>
+        <!--HuTool工具包-->
+        <dependency>
+            <groupId>cn.hutool</groupId>
+            <artifactId>hutool-ai</artifactId>
+            <version>5.8.38</version>
+        </dependency>
 
         <dependency>
             <groupId>com.google.protobuf</groupId>
