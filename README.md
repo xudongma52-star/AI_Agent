@@ -38,7 +38,7 @@
 
 ### 1. 克隆项目
 \```bash
-git clone https://github.com/你的用户名/AI_Agent.git
+git clone https://github.com/xudongma52-star/AI_Agent.git
 cd AI_Agent
 \```
 

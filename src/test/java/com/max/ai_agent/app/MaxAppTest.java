@@ -1,33 +1,159 @@
 package com.max.ai_agent.app;
 
-import jakarta.annotation.Resource;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.context.SpringBootTest;
 
-import java.util.UUID;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-
-@SpringBootTest
+@DisplayName("MaxApp 应用层 单元测试")
 class MaxAppTest {
 
-    @Resource
-    private MaxApp maxApp;
-    @Test
-    void nowChatWithReport() {
-        String chatId = UUID.randomUUID().toString();
-        String message = "今天其实过得有点恍惚。\n" +
-                "\n" +
-                "早上起来的时候脑子还没完全转过来，就开始想一些有的没的——比如我到底在忙什么，忙了这么久，有没有真的往前走一步。有时候觉得自己很努力，但努力和进步之间好像隔着一层什么，看不清楚。\n" +
-                "\n" +
-                "跟人说话的时候会好一点。不是因为说了什么有意义的话，就是那种\"有人在\"的感觉，会让人踏实一些。我发现我其实挺需要这个的，虽然平时不太承认。\n" +
-                "\n" +
-                "今天让我印象深的是一个很小的瞬间。窗外的光突然变了，那种下午四五点钟特有的斜光，打在墙上，有点暖，有点静。就那么几秒钟，什么都不想，只是看着。后来又回到原来的状态了，但那几秒钟是真的舒服。\n" +
-                "\n" +
-                "心得的话，我觉得今天提醒了我一件事——不要总是等一个\"准备好了\"的时刻。很多时候就是硬着头皮去做，做着做着就顺了。道理都懂，但每次还是要重新学一遍，也挺有意思的。\n" +
-                "\n" +
-                "就这样吧。也没什么大感悟，平常的一天，平常地过完了。";
-        maxApp.nowChatWithReport(message,chatId);
+    @Nested
+    @DisplayName("SYSTEM_PROMPT 内容验证")
+    class SystemPromptTests {
+
+        @Test
+        @DisplayName("SYSTEM_PROMPT - 应包含角色名'洞洞'")
+        void systemPrompt_shouldContainRoleName() {
+            String prompt = getSystemPrompt();
+            assertTrue(prompt.contains("洞洞"));
+        }
+
+        @Test
+        @DisplayName("SYSTEM_PROMPT - 应包含'你是谁'章节")
+        void systemPrompt_shouldContainWhoYouAre() {
+            assertTrue(getSystemPrompt().contains("你是谁"));
+        }
+
+        @Test
+        @DisplayName("SYSTEM_PROMPT - 应包含'你怎么回应'章节")
+        void systemPrompt_shouldContainHowToRespond() {
+            assertTrue(getSystemPrompt().contains("你怎么回应"));
+        }
+
+        @Test
+        @DisplayName("SYSTEM_PROMPT - 应包含'永远记住'章节")
+        void systemPrompt_shouldContainRemember() {
+            assertTrue(getSystemPrompt().contains("永远记住"));
+        }
+
+        @Test
+        @DisplayName("SYSTEM_PROMPT - 不应为null或空")
+        void systemPrompt_shouldNotBeNullOrEmpty() {
+            String prompt = getSystemPrompt();
+            assertNotNull(prompt);
+            assertFalse(prompt.isBlank());
+        }
+
+        @Test
+        @DisplayName("SYSTEM_PROMPT - 长度应在合理范围(100~5000字符)")
+        void systemPrompt_lengthShouldBeReasonable() {
+            String prompt = getSystemPrompt();
+            assertTrue(prompt.length() > 100, "提示词过短");
+            assertTrue(prompt.length() < 5000, "提示词过长会浪费Token");
+        }
+
+        private String getSystemPrompt() {
+            try {
+                var field = MaxApp.class.getDeclaredField("SYSTEM_PROMPT");
+                field.setAccessible(true);
+                return (String) field.get(null);
+            } catch (Exception e) {
+                fail("无法获取SYSTEM_PROMPT: " + e.getMessage());
+                return null;
+            }
+        }
+    }
+
+    @Nested
+    @DisplayName("insightFelling Record 测试")
+    class InsightFellingTests {
+
+        @Test
+        @DisplayName("insightFelling - Record类应存在")
+        void insightFelling_classShouldExist() throws Exception {
+            Class<?> clazz = getInsightFellingClass();
+            assertNotNull(clazz);
+        }
+
+        @Test
+        @DisplayName("insightFelling - 应有2个字段(title, summary)")
+        void insightFelling_shouldHave2Components() throws Exception {
+            var components = getInsightFellingClass().getRecordComponents();
+            assertNotNull(components);
+            assertEquals(2, components.length);
+        }
+
+        @Test
+        @DisplayName("insightFelling - 第一个字段名应为title")
+        void insightFelling_firstFieldShouldBeTitle() throws Exception {
+            var components = getInsightFellingClass().getRecordComponents();
+            assertEquals("title", components[0].getName());
+        }
+
+        @Test
+        @DisplayName("insightFelling - 第二个字段名应为summary")
+        void insightFelling_secondFieldShouldBeSummary() throws Exception {
+            var components = getInsightFellingClass().getRecordComponents();
+            assertEquals("summary", components[1].getName());
+        }
+
+        @Test
+        @DisplayName("insightFelling - title应为String类型")
+        void insightFelling_titleShouldBeString() throws Exception {
+            var components = getInsightFellingClass().getRecordComponents();
+            assertEquals(String.class, components[0].getType());
+        }
+
+        @Test
+        @DisplayName("insightFelling - summary应为List类型")
+        void insightFelling_summaryShouldBeList() throws Exception {
+            var components = getInsightFellingClass().getRecordComponents();
+            assertEquals(List.class, components[1].getType());
+        }
+
+        private Class<?> getInsightFellingClass() throws ClassNotFoundException {
+            return Class.forName("com.max.ai_agent.app.MaxApp$insightFelling");
+        }
+    }
+
+    @Nested
+    @DisplayName("方法签名验证")
+    class MethodSignatureTests {
+
+        @Test
+        @DisplayName("nowChat() - 应有2个String参数")
+        void nowChat_shouldHave2Params() throws Exception {
+            var method = MaxApp.class.getDeclaredMethod(
+                    "nowChat", String.class, String.class);
+            assertEquals(2, method.getParameterCount());
+        }
+
+        @Test
+        @DisplayName("nowChat() - 返回类型应为String")
+        void nowChat_returnTypeShouldBeString() throws Exception {
+            var method = MaxApp.class.getDeclaredMethod(
+                    "nowChat", String.class, String.class);
+            assertEquals(String.class, method.getReturnType());
+        }
+
+        @Test
+        @DisplayName("nowChatWithReport() - 应有2个String参数")
+        void nowChatWithReport_shouldHave2Params() throws Exception {
+            var method = MaxApp.class.getDeclaredMethod(
+                    "nowChatWithReport", String.class, String.class);
+            assertEquals(2, method.getParameterCount());
+        }
+
+        @Test
+        @DisplayName("MaxApp - 应标注@Component注解")
+        void maxApp_shouldHaveComponentAnnotation() {
+            var annotation = MaxApp.class.getAnnotation(
+                    org.springframework.stereotype.Component.class);
+            assertNotNull(annotation, "MaxApp应标注@Component");
+        }
     }
 }
