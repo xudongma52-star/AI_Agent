@@ -14,14 +14,15 @@ public class RedisLuaConfig {
         local listKey = KEYS[1]
         local counterKey = KEYS[2]
         local messageJson = ARGV[1]
-        local ttl = tonumber(ARGV[2])
+         -- 增加 or 86400 兜底，如果没传 TTL，默认过期时间为 24 小时
+        local ttl = tonumber(ARGV[2]) or 86400
         local mysqlMaxOrder = tonumber(ARGV[3])
         
         local counterExists = redis.call('EXISTS', counterKey)
         
         local order
         if counterExists == 0 then
-            order = mysqlMaxOrder + 1
+            order = (mysqlMaxOrder or 0) + 1
             redis.call('SET', counterKey, order)
         else
             order = redis.call('INCR', counterKey)

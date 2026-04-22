@@ -80,6 +80,7 @@ public class RedisMySqlChatMemory implements ChatMemory {
                 throw new RuntimeException("消息序列化失败", e);
             }
 
+
             Long order = redisTemplate.execute(
                     addMessageScript,
                     Arrays.asList(redisKey, counterKey),
