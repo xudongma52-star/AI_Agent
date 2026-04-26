@@ -26,6 +26,22 @@
 
     <dependencies>
 
+        <!-- Spring AI PGVector -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-starter-vector-store-pgvector</artifactId>
+            <version>1.1.2</version>
+            <scope>compile</scope>
+        </dependency>
+
+        <!--DocumentReader：读取文档，得到文档列表-->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-markdown-document-reader</artifactId>
+            <version>1.1.4</version>
+            <scope>compile</scope>
+        </dependency>
+
         <!-- H2 内存数据库（测试用）-->
         <dependency>
             <groupId>com.h2database</groupId>
