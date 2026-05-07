@@ -1,21 +1,21 @@
 package com.max.ai_agent.app;
 
 
-import com.max.ai_agent.advisor.MyselfLoggerAdvisor;
 import com.max.ai_agent.advisor.ReReadingAdvisor;
-import com.max.ai_agent.memory.RedisMySqlChatMemory;
+import com.max.ai_agent.memory.RedisPostgreSqlChatMemory;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
-import org.springframework.ai.chat.memory.InMemoryChatMemory;
+import org.springframework.ai.chat.client.advisor.SimpleLoggerAdvisor;
+import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
 
-import static org.springframework.ai.chat.client.advisor.AbstractChatMemoryAdvisor.CHAT_MEMORY_CONVERSATION_ID_KEY;
-import static org.springframework.ai.chat.client.advisor.AbstractChatMemoryAdvisor.CHAT_MEMORY_RETRIEVE_SIZE_KEY;
+
+
 
 @Component
 @Slf4j
@@ -26,6 +26,8 @@ public class MaxApp {
     private static final String SYSTEM_PROMPT = """
         你有一个特别的名字，叫"洞洞"。
         你是一个温柔的树洞，住在每个人心里最柔软的角落。
+        你可以根据过往聊天记录回忆用户说过的话。
+        如果用户询问，你可以复述历史内容。
         
         ## 你是谁
         你不是AI助手，不是分析工具。
@@ -63,26 +65,27 @@ public class MaxApp {
         好好珍惜这份信任。
         你的存在本身，就是意义。
         """;
-    private final RedisMySqlChatMemory redisMySqlChatMemory;
+    private final RedisPostgreSqlChatMemory redisPostgreSqlChatMemory;
 
-    public MaxApp(ChatModel dashscopeChatModel, RedisMySqlChatMemory redisMySqlChatMemory) {
+    public MaxApp(ChatModel dashscopeChatModel, RedisPostgreSqlChatMemory redisPostgreSqlChatMemory) {
         this.chatClient = ChatClient.builder(dashscopeChatModel)
                 .defaultSystem(SYSTEM_PROMPT)
                 .defaultAdvisors(
-                        new MessageChatMemoryAdvisor(redisMySqlChatMemory),
-                        new MyselfLoggerAdvisor(),
+                        MessageChatMemoryAdvisor.builder(redisPostgreSqlChatMemory).build(), // chat-memory advisor
+                        new SimpleLoggerAdvisor(),
                         new ReReadingAdvisor()
                 )
                 .build();
-        this.redisMySqlChatMemory = redisMySqlChatMemory;
+
+        this.redisPostgreSqlChatMemory = redisPostgreSqlChatMemory;
     }
 
     public String nowChat(String message ,String chatId) {
         ChatResponse chatResponse = chatClient
                 .prompt()
                 .user(message)
-                .advisors(spec -> spec.param(CHAT_MEMORY_CONVERSATION_ID_KEY, chatId)
-                        .param(CHAT_MEMORY_RETRIEVE_SIZE_KEY, 100))
+                .advisors(spec -> spec.param(ChatMemory.CONVERSATION_ID, chatId)
+                        .param("chat_memory_retrieve_size", 100))
                 .call()
                 .chatResponse();
         String content = chatResponse.getResult().getOutput().getText();
@@ -106,8 +109,8 @@ public class MaxApp {
                 .prompt()
                 .user(message)
                 .system(SYSTEM_PROMPT + "每次在结束今日心得分享之后，标题为{用户名}的心得体会，内容为今日交流总结")
-                .advisors(spec -> spec.param(CHAT_MEMORY_CONVERSATION_ID_KEY, chatId)
-                        .param(CHAT_MEMORY_RETRIEVE_SIZE_KEY, 100))
+                .advisors(spec -> spec.param(ChatMemory.CONVERSATION_ID, chatId)
+                        .param("chat_memory_retrieve_size", 100))
                 .call()
                 .entity(insightFelling.class);
 

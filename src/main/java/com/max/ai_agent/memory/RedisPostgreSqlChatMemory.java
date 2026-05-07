@@ -26,7 +26,7 @@ import java.util.stream.Collectors;
 
 @Slf4j
 @Component
-public class RedisMySqlChatMemory implements ChatMemory {
+public class RedisPostgreSqlChatMemory implements ChatMemory {
 
     private static final String REDIS_KEY_PREFIX = "chat:memory:";
     private static final String COUNTER_KEY_PREFIX = "chat:counter:";
@@ -49,11 +49,11 @@ public class RedisMySqlChatMemory implements ChatMemory {
         return redisFirTtl + jitter;
     }
 
-    public RedisMySqlChatMemory(RedisTemplate<String, Object> redisTemplate,
-                                ChatMemoryMapper chatMemoryMapper,
-                                RabbitTemplate rabbitTemplate,
-                                DefaultRedisScript<Long> addMessageScript, // 加上泛型<Long>
-                                ObjectMapper objectMapper
+    public RedisPostgreSqlChatMemory(RedisTemplate<String, Object> redisTemplate,
+                                     ChatMemoryMapper chatMemoryMapper,
+                                     RabbitTemplate rabbitTemplate,
+                                     DefaultRedisScript<Long> addMessageScript, // 加上泛型<Long>
+                                     ObjectMapper objectMapper
     ) {
         this.redisTemplate = redisTemplate;
         this.chatMemoryMapper = chatMemoryMapper;
@@ -156,7 +156,12 @@ public class RedisMySqlChatMemory implements ChatMemory {
     }
 
     @Override
-    public List<Message> get(String conversationId, int lastN) {
+    public List<Message> get(String conversationId) {
+        return getMemory(conversationId, maxSize);
+    }
+
+
+    public List<Message> getMemory(String conversationId, int lastN) {
 
 
 
@@ -200,7 +205,7 @@ public class RedisMySqlChatMemory implements ChatMemory {
                 if(redisSize != null && redisSize > 0){
                     return getFromRedis(redisKey, lastN);
                 }
-                return loadFromMySQL(conversationId,lastN,redisKey);
+                return loadFromPostgreSql(conversationId,lastN,redisKey);
             }else{
                 //没拿到的话，让他睡一会，等会再尝试
                 Thread.sleep(200);
@@ -208,8 +213,8 @@ public class RedisMySqlChatMemory implements ChatMemory {
                 if (redisSize != null && redisSize > 0) {
                     return getFromRedis(redisKey, lastN);
                 }
-                return loadFromMySQL(conversationId, lastN, redisKey);
-                //return loadFromMySQL(conversationId,lastN,redisKey);//1000个请求，如果第一个获取锁之后，过了200ms，999个请求又去查询MySql导致MySql又挂了
+                return loadFromPostgreSql(conversationId, lastN, redisKey);
+                //return loadFromPostgreSql(conversationId,lastN,redisKey);//1000个请求，如果第一个获取锁之后，过了200ms，999个请求又去查询MySql导致MySql又挂了
             }
         } catch (InterruptedException e) {
             //可以让上层调用者知道这里发生过中断
@@ -245,6 +250,7 @@ public class RedisMySqlChatMemory implements ChatMemory {
     }
 
     private List<Message> getFromRedis(String redisKey, int lastN) {
+        log.info("尝试使用redis");
         try {
             Long size = redisTemplate.opsForList().size(redisKey);
             if (size == null || size == 0) return Collections.emptyList();
@@ -278,7 +284,8 @@ public class RedisMySqlChatMemory implements ChatMemory {
         }
     }
 
-    private List<Message> loadFromMySQL(String conversationId, int lastN, String redisKey) {
+    private List<Message> loadFromPostgreSql(String conversationId, int lastN, String redisKey) {
+        log.info("尝试使用postgresql");
         try {
             Page<ChatMemoryEntity> page = new Page<>(1, maxSize);
 
