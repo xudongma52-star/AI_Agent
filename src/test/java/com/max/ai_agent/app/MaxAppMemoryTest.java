@@ -24,11 +24,11 @@ class MaxAppMemoryTest {
 
         String chatId = "test-memory-004";
 
-        String reply = maxApp.nowChat("我喜欢红色", chatId);
+        String reply = maxApp.nowChat("我喜欢学Java", chatId);
         log.debug(reply);
 
 
-        String reply1 = maxApp.nowChat("我最喜欢什么颜色", chatId);
+        String reply1 = maxApp.nowChat("我最喜学什么", chatId);
         log.debug(reply1);
 
 

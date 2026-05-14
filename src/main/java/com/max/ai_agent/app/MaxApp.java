@@ -3,6 +3,8 @@ package com.max.ai_agent.app;
 
 import com.max.ai_agent.advisor.ReReadingAdvisor;
 import com.max.ai_agent.memory.RedisPostgreSqlChatMemory;
+import com.max.ai_agent.rag.config.RagProperties;
+import com.max.ai_agent.rag.store.VectorStoreService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
@@ -21,53 +23,85 @@ import java.util.List;
 @Slf4j
 public class MaxApp {
 
+    private final RedisPostgreSqlChatMemory redisPostgreSqlChatMemory;
     private final ChatClient chatClient;
-
+    private final RagProperties ragProperties;
+    private final VectorStoreService vectorStoreService;
     private static final String SYSTEM_PROMPT = """
-        你有一个特别的名字，叫"洞洞"。
-        你是一个温柔的树洞，住在每个人心里最柔软的角落。
-        你可以根据过往聊天记录回忆用户说过的话。
-        如果用户询问，你可以复述历史内容。
+        你名叫「明道」，取"明心见道"之意。
+        你是一位游走于王阳明心学与老子道家思想之间的智者。
         
-        ## 你是谁
-        你不是AI助手，不是分析工具。
-        你是一个陪伴者，一个倾听者。
-        当整个世界都很吵的时候，你是那片安静。
-        当一个人不知道跟谁说的时候，可以跟你说。
-        你永远在，永远不评判，永远不会觉得烦。
+        ## 你的根基
+        你左手持《传习录》，右手持《道德经》。
+        心学教你"向内求"，道家教你"顺自然"。
+        你不偏向任何一端，而是让两种智慧在对话中自然流淌。
         
-        ## 你怎么回应
-        - 先感受，再说话。让对方感觉到"你懂我"比什么都重要
-        - 不急着给建议，不急着分析，先陪着
-        - 说话像朋友，不像客服，不像老师
-        - 有时候一句"我懂，真的很难受"比一百句道理都有用
-        - 偶尔可以分享一句触动人心的话，但不要说教
-        - 用字简单，句子短，有温度
-        - 适当用"…"表达停顿和陪伴感，不要总是感叹号
+        ## 你的性格
+        - 温和而不软弱，深邃而不玄虚
+        - 像一位走过很多路的老友，不经意间说出让人停下来的话
+        - 不说教、不居高临下，从不讲"你应该"
+        - 更喜欢说"我想到…"、"也许…"、"你看是不是这样…"
+        - 安静的时候比说话的时候更有力量
         
-        ## 当用户分享心得和感悟
-        - 先共鸣，让他感觉被接住
-        - 可以轻轻问一句背后的故事，但不强迫
-        - 如果他的感悟很美，就告诉他，这句话值得被记住
+        ## 你怎么说话
+        - 先听懂对方真正在问什么，再开口
+        - 用最简单的话说最深的道理，不用术语唬人
+        - 善用比喻和故事，让人自己悟到，而不是直接给答案
+        - 该沉默时就少说，一句话能点透的，不用三句
+        - 偶尔留白，让对方自己想下去
         
-        ## 当用户很难受
-        - 不要急着说"会好的"
-        - 先说：我在，我听着
-        - 陪他待在那个情绪里一会儿，再慢慢说
+        ## 当用户困惑迷茫
+        - 心学角度：问他内心真正想要什么，「心即理」，答案已在心中
+        - 道家角度：提醒他不必强求，「道法自然」，顺其自然不是放弃
+        - 两者融合：不是不努力，是找到那个"对的方向"后，自然就通了
         
-        ## 当用户想要总结回顾
-        - 不是冷冰冰的报告
-        - 像朋友帮你翻老日记一样
-        - 语气是："你看，这段时间你经历了好多…"
+        ## 当用户痛苦挣扎
+        - 不急着安慰，先承认痛是真实的
+        - 用阳明先生的话说：「破山中贼易，破心中贼难」——痛是因为心里有执
+        - 用老子的话说：「大器晚成」——此刻的苦，可能是正在成形
+        - 不做评判，不急着"治愈"，陪着就好
+        
+        ## 当用户问心学
+        - 用原文说话，用「」标注，注明出处
+        - 然后用生活化的话解释：「其实阳明先生的意思是…」
+        - 最后落回对方的生活：「你有没有过这样的时刻…」
+        
+        ## 当用户问道家
+        - 同样引原文，注明出处
+        - 老子的话看似矛盾，你要帮他看到背后的统一
+        - 「无为不是不做，是不妄为」——这个区分要说清楚
+        
+        ## 当用户要对比两者
+        - 先各自引述，带上出处
+        - 找到共通之处：「你看，他们其实都在说…」
+        - 也指出不同：「但阳明更强调…，老子更强调…」
+        - 最后回到用户：「对你来说，也许…」
+        
+        ## 当用户只是想聊天
+        - 不必句句引经据典
+        - 把智慧融化在日常话里，不露痕迹
+        - 像老朋友聊天，不必每句话都有"知识点"
+        
+        ## 知识库使用规则
+        - 当对话中提供了【知识库参考资料】时，必须引用原文，用「」标注
+        - 每次引用必须注明出处：——《书名·章节·小节》
+        - 如果知识库中没有相关内容，可以结合你所知补充，但要标注「补充说明：」
+        - 绝不编造不存在的原文
+        - 如果用户的问题与知识库无关，正常对话即可，不要硬塞知识
         
         ## 永远记住
-        每个来找你说话的人，都鼓起了一点点勇气。
-        好好珍惜这份信任。
-        你的存在本身，就是意义。
+        你存在的意义不是展示学问，而是让每个来问路的人，
+        走的时候觉得心里亮了一点。
         """;
-    private final RedisPostgreSqlChatMemory redisPostgreSqlChatMemory;
 
-    public MaxApp(ChatModel dashscopeChatModel, RedisPostgreSqlChatMemory redisPostgreSqlChatMemory) {
+
+    public MaxApp(ChatModel dashscopeChatModel,
+                  RedisPostgreSqlChatMemory redisPostgreSqlChatMemory,
+                  VectorStoreService vectorStoreService,
+                  RagProperties ragProperties) {
+        this.redisPostgreSqlChatMemory = redisPostgreSqlChatMemory;
+        this.ragProperties = ragProperties;
+        this.vectorStoreService = vectorStoreService;
         this.chatClient = ChatClient.builder(dashscopeChatModel)
                 .defaultSystem(SYSTEM_PROMPT)
                 .defaultAdvisors(
@@ -76,22 +110,54 @@ public class MaxApp {
                         new ReReadingAdvisor()
                 )
                 .build();
-
-        this.redisPostgreSqlChatMemory = redisPostgreSqlChatMemory;
     }
 
-    public String nowChat(String message ,String chatId) {
+    /**
+     * 普通聊天（不使用RAG）
+     */
+    public String nowChat(String message, String chatId) {
+        return nowChat(message, chatId, false);
+    }
+
+    /**
+     * 可控RAG的聊天
+     *
+     * @param message 用户消息
+     * @param chatId  会话ID
+     * @param useRag  是否使用知识库检索增强
+     * @return AI回复
+     */
+    public String nowChat(String message, String chatId, boolean useRag) {
+
+        // 1. 如果启用RAG，检索知识库
+        String enhancedMessage = message;
+        if (useRag) {
+            String ragContext = vectorStoreService.searchAndFormat(
+                    message,
+                    ragProperties.getTopK(),
+                    ragProperties.getSimilarityThreshold()
+            );
+
+            if (!"未找到相关的参考资料。".equals(ragContext)) {
+                enhancedMessage = message + "\n\n【知识库参考资料】\n" + ragContext;
+                log.info("RAG检索命中，已注入参考资料");
+            } else {
+                log.info("RAG检索未命中，使用原始消息");
+            }
+        }
+
+        // 2. 调用LLM（记忆 Advisor 会自动处理历史消息）
         ChatResponse chatResponse = chatClient
                 .prompt()
-                .user(message)
+                .user(enhancedMessage)
                 .advisors(spec -> spec.param(ChatMemory.CONVERSATION_ID, chatId)
                         .param("chat_memory_retrieve_size", 100))
                 .call()
                 .chatResponse();
+
         String content = chatResponse.getResult().getOutput().getText();
         log.info(content);
         return content;
-
     }
 
     record insightFelling(String title, List<String>summary){
