@@ -4,12 +4,17 @@ import com.max.ai_agent.app.MaxApp;
 import com.max.ai_agent.dto.ChatRequest;
 import com.max.ai_agent.dto.ChatResponse;
 import com.max.ai_agent.rag.service.RagKnowledgeService;
+import com.max.ai_agent.tools.PdfExportTool;
+import com.max.ai_agent.tools.PdfExportTool.PdfEntry;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.UUID;
 
@@ -100,6 +105,27 @@ public class ChatController {
 
         return maxApp.nowChatStream(chatRequest.getMessage(), chatRequest.getChatId(), useRag)
                 .map(content -> "data:" + content + "\n\n");
+    }
+
+    /**
+     * 下载 PDF
+     * GET /api/chat/pdf/download/{downloadId}
+     */
+    @GetMapping("/pdf/download/{downloadId}")
+    public ResponseEntity<byte[]> downloadPdf(@PathVariable String downloadId) {
+        PdfEntry entry = PdfExportTool.takePdf(downloadId);
+        if (entry == null) {
+            return ResponseEntity.notFound().build();
+        }
+
+        String encodedFileName = URLEncoder.encode(entry.fileName(), StandardCharsets.UTF_8)
+                .replace("+", "%20");
+
+        return ResponseEntity.ok()
+                .contentType(MediaType.APPLICATION_PDF)
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        "attachment; filename*=UTF-8''" + encodedFileName)
+                .body(entry.bytes());
     }
 
     /**
