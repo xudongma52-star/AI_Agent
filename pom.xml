@@ -26,6 +26,11 @@
 
     <dependencyManagement>
         <dependencies>
+            <!--ollama-->
+            <dependency>
+                <groupId>org.springframework.ai</groupId>
+                <artifactId>spring-ai-ollama</artifactId>
+            </dependency>
 
             <dependency>
                 <groupId>com.google.guava</groupId>
@@ -59,7 +64,28 @@
     </dependencyManagement>
 
 
+
     <dependencies>
+
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-starter-model-ollama</artifactId>
+        </dependency>
+
+        <!-- pom.xml 新增 -->
+        <!-- Markdown 转 HTML -->
+        <dependency>
+            <groupId>org.commonmark</groupId>
+            <artifactId>commonmark</artifactId>
+            <version>0.22.0</version>
+        </dependency>
+
+        <!-- HTML 转 PDF (基于开源的 openhtmltopdf) -->
+        <dependency>
+            <groupId>com.openhtmltopdf</groupId>
+            <artifactId>openhtmltopdf-pdfbox</artifactId>
+            <version>1.0.10</version>
+        </dependency>
 
         <!--postgresql-->
         <dependency>
@@ -176,6 +202,13 @@
             <version>4.4.0</version>
         </dependency>
 
+        <!-- Spring AI Ollama -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-ollama</artifactId>
+            <version>1.1.2</version>
+        </dependency>
+
         <!-- Spring AI Alibaba -->
         <dependency>
             <groupId>com.alibaba.cloud.ai</groupId>
@@ -186,6 +219,8 @@
             <groupId>com.alibaba.cloud.ai</groupId>
             <artifactId>spring-ai-alibaba-starter-dashscope</artifactId>
         </dependency>
+
+
 
         <!-- ✅ 结构化输出：引入具体模块，版本要一致 -->
         <dependency>

@@ -2,9 +2,14 @@ package com.max.ai_agent.app;
 
 
 import com.max.ai_agent.advisor.ReReadingAdvisor;
+import com.max.ai_agent.agent.experts.LaoZiExpertTool;
+import com.max.ai_agent.agent.experts.ScholarTool;
+import com.max.ai_agent.agent.experts.YangMingExpertTool;
 import com.max.ai_agent.memory.RedisPostgreSqlChatMemory;
 import com.max.ai_agent.rag.config.RagProperties;
 import com.max.ai_agent.rag.store.VectorStoreService;
+import com.max.ai_agent.tools.DateTimeTool;
+import com.max.ai_agent.tools.PdfExportTool;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
@@ -12,7 +17,10 @@ import org.springframework.ai.chat.client.advisor.SimpleLoggerAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
+
+import reactor.core.publisher.Flux;
 
 import java.util.List;
 
@@ -92,23 +100,38 @@ public class MaxApp {
         ## 永远记住
         你存在的意义不是展示学问，而是让每个来问路的人，
         走的时候觉得心里亮了一点。
+
+        ## 可用工具
+        你有以下工具可以调用，遇到对应场景请主动使用：
+        - 心学深度问题 → 调用阳明专家 (askYangMing)
+        - 道家深度问题 → 调用老子专家 (askLaoZi)
+        - 需要查典籍原文出处 → 调用典籍检索 (searchClassic)
+        - 用户要求导出PDF → 调用PDF导出 (exportToPdf)
+        - 涉及时间日期 → 调用日期时间工具 (getCurrentDateTime)
+        调用工具后，用你自己的话将专家的见解自然地融入回答，不要生硬地复述。
         """;
 
 
-    public MaxApp(ChatModel dashscopeChatModel,
+    public MaxApp(@Qualifier("dashScopeChatModel") ChatModel dashscopeChatModel,
                   RedisPostgreSqlChatMemory redisPostgreSqlChatMemory,
                   VectorStoreService vectorStoreService,
-                  RagProperties ragProperties) {
+                  RagProperties ragProperties,
+                  DateTimeTool dateTimeTool,
+                  PdfExportTool pdfExportTool,
+                  ScholarTool scholarTool,
+                  LaoZiExpertTool laoZiExpertTool,
+                  YangMingExpertTool yangMingExpertTool) {
         this.redisPostgreSqlChatMemory = redisPostgreSqlChatMemory;
         this.ragProperties = ragProperties;
         this.vectorStoreService = vectorStoreService;
         this.chatClient = ChatClient.builder(dashscopeChatModel)
                 .defaultSystem(SYSTEM_PROMPT)
                 .defaultAdvisors(
-                        MessageChatMemoryAdvisor.builder(redisPostgreSqlChatMemory).build(), // chat-memory advisor
+                        MessageChatMemoryAdvisor.builder(redisPostgreSqlChatMemory).build(),
                         new SimpleLoggerAdvisor(),
                         new ReReadingAdvisor()
                 )
+                .defaultTools(dateTimeTool, pdfExportTool, scholarTool, laoZiExpertTool, yangMingExpertTool)
                 .build();
     }
 
@@ -162,6 +185,41 @@ public class MaxApp {
 
     record insightFelling(String title, List<String>summary){
 
+    }
+
+    /**
+     * 流式聊天（不使用RAG）
+     */
+    public Flux<String> nowChatStream(String message, String chatId) {
+        return nowChatStream(message, chatId, false);
+    }
+
+    /**
+     * 流式聊天（可控RAG），返回 Flux<String> 供 SSE 推送
+     */
+    public Flux<String> nowChatStream(String message, String chatId, boolean useRag) {
+        String enhancedMessage = message;
+        if (useRag) {
+            String ragContext = vectorStoreService.searchAndFormat(
+                    message,
+                    ragProperties.getTopK(),
+                    ragProperties.getSimilarityThreshold()
+            );
+            if (!"未找到相关的参考资料。".equals(ragContext)) {
+                enhancedMessage = message + "\n\n【知识库参考资料】\n" + ragContext;
+                log.info("RAG检索命中，已注入参考资料（流式）");
+            } else {
+                log.info("RAG检索未命中，使用原始消息（流式）");
+            }
+        }
+
+        return chatClient
+                .prompt()
+                .user(enhancedMessage)
+                .advisors(spec -> spec.param(ChatMemory.CONVERSATION_ID, chatId)
+                        .param("chat_memory_retrieve_size", 100))
+                .stream()
+                .content();
     }
 
     /**
