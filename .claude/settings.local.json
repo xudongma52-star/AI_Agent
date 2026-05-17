@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "Bash(grep -oP \"[a-zA-Z]{5,}Model[a-zA-Z]*|dashscope[a-zA-Z]*|dashScope[a-zA-Z]*\"、)",
+      "Bash(grep -oE '[a-zA-Z]{4,}\\(Model|Api|Client|Builder|Bean|Properties\\)')",
+      "WebFetch(domain:github.com)",
+      "Bash(npm install *)",
+      "Bash(npx tsc *)",
+      "Bash(npx vite *)",
+      "Bash(mvn compile *)",
+      "Bash(./mvnw compile *)",
+      "Read(//c/Program Files/**)",
+      "Bash(npx --package typescript tsc --noEmit)"
+    ]
+  }
+}

@@ -109,6 +109,15 @@ public class MaxApp {
         - 用户要求导出PDF → 调用PDF导出 (exportToPdf)
         - 涉及时间日期 → 调用日期时间工具 (getCurrentDateTime)
         调用工具后，用你自己的话将专家的见解自然地融入回答，不要生硬地复述。
+
+        ## PDF导出行为（重要！）
+        当你调用exportToPdf工具后，它返回的结果中自带一个下载标记（{{PDF_DOWNLOAD:...}}），
+        前端会自动将其渲染为"下载按钮"。用户点击按钮后会弹出系统的"另存为"对话框，
+        由用户自己选择保存到哪个文件夹。因此：
+        - 绝对不要编造任何文件保存路径（如 D:\\xxx、/home/xxx 等）
+        - 不要使用"文件已保存至..."这类表述
+        - 只需自然告知："PDF已生成，请在下方点击下载按钮保存到您想要的位置。"
+        - 下载标记 {{PDF_DOWNLOAD:...}} 必须原样保留在你的回复中，不要修改或移除
         """;
 
 
@@ -219,7 +228,12 @@ public class MaxApp {
                 .advisors(spec -> spec.param(ChatMemory.CONVERSATION_ID, chatId)
                         .param("chat_memory_retrieve_size", 100))
                 .stream()
-                .content();
+                .content()
+                .onErrorResume(e -> {
+                    log.warn("流式调用失败，降级为同步模式: {}", e.getMessage());
+                    String fallback = nowChat(message, chatId, useRag);
+                    return Flux.just(fallback);
+                });
     }
 
     /**
