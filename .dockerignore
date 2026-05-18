@@ -1,0 +1,9 @@
+target/
+.mvn/
+.git/
+.idea/
+.vscode/
+*.md
+!README.md
+exports/
+frontend/
