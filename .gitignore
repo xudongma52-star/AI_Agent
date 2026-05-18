@@ -14,8 +14,10 @@ target/
 .springBeans
 .sts4-cache
 
-# 忽略包含API Key的配置文件
+# 忽略含敏感信息的本地配置文件
 src/main/resources/application.yml
+src/test/resources/application.yml
+.env
 
 ### IntelliJ IDEA ###
 .idea

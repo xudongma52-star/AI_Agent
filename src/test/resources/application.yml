@@ -4,15 +4,18 @@ server:
 spring:
   application:
     name: spring-ai-alibaba-qwq-chat-client-example
+  sql:
+    init:
+      mode: always
   autoconfigure:
     exclude:
       - org.springframework.ai.model.ollama.autoconfigure.OllamaEmbeddingAutoConfiguration
 
   rabbitmq:
-    host: 127.0.0.1
-    port: 5672
-    username: guest
-    password: guest
+    host: ${RABBITMQ_HOST:127.0.0.1}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
     virtual-host: /
     # 生产者确认模式
     publisher-confirm-type: correlated
@@ -31,17 +34,17 @@ spring:
           max-interval: 10000ms
 
   datasource:
-    url: jdbc:postgresql://localhost:5432/ai_agent
-    username: postgres
-    password: postgres
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/ai_agent}
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:postgres}
     driver-class-name: org.postgresql.Driver
 
   data:
     redis:
-      host: 127.0.0.1
-      port: 6379
-      password:
-      database: 0
+      host: ${REDIS_HOST:127.0.0.1}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      database: ${REDIS_DATABASE:0}
       lettuce:
         pool:
           max-active: 8
@@ -51,7 +54,7 @@ spring:
 
   ai:
     dashscope:
-      api-key: sk-395fd22a76a5496099044ce1a13e9847
+      api-key: ${DASHSCOPE_API_KEY:sk-395fd22a76a5496099044ce1a13e9847}
       chat:
         options:
           model: qwen-plus
@@ -60,7 +63,7 @@ spring:
           model: text-embedding-v3    # 最新模型，1024维
 
     ollama:
-      base-url: http://localhost:11434
+      base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
       embedding:
         enabled: false            # 禁用Ollama Embedding，统一用DashScope
       chat:
